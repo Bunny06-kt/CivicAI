@@ -3,55 +3,72 @@ import os
 from dotenv import load_dotenv
 
 # -----------------------------
-# LOAD GEMINI
+# SAFE GEMINI SETUP (OPTIONAL)
 # -----------------------------
-USE_AI = True
+USE_AI = False  # TURN OFF for full safety
 
 try:
     import google.generativeai as genai
     load_dotenv()
-    genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
-    model = genai.GenerativeModel("gemini-1.5-flash")
+    api_key = os.getenv("GEMINI_API_KEY")
+
+    if api_key:
+        genai.configure(api_key=api_key)
+        model = genai.GenerativeModel("gemini-1.0-pro")
+        USE_AI = True
 except:
     USE_AI = False
 
 
 # -----------------------------
-# RULE-BASED INTENT (FAST FALLBACK)
+# RULE-BASED INTENT (PRIMARY)
 # -----------------------------
 def rule_based_intent(user_input):
     text = user_input.lower()
 
-    if "subsidy" in text or "सोलर" in text or "beku" in text:
+    if any(word in text for word in [
+        "subsidy", 
+        "solar",
+        "सोलर",
+        "सब्सिडी", 
+        "beku"
+    ]):
         return "apply_scheme"
 
-    if "track" in text or "status" in text:
+    if any(word in text for word in [
+        "track", 
+        "status",
+        "स्थिति"
+    ]):
         return "track_application"
 
-    if "office" in text or "near" in text:
+    if any(word in text for word in [
+        "office", 
+        "near",
+        "केंद्र",
+        "पास"
+    ]):
         return "nearest_office"
 
     return "general_query"
-
-
 # -----------------------------
-# GEMINI INTENT (SMART)
+# OPTIONAL AI INTENT (SAFE)
 # -----------------------------
 def ai_intent(user_input):
     if not USE_AI:
         return None
 
     prompt = f"""
-Classify user intent into ONE of:
+Classify into ONE:
 apply_scheme / track_application / nearest_office / general_query
 
 Input: {user_input}
-Output:
+Answer:
 """
 
     try:
         response = model.generate_content(prompt)
-        intent = response.text.strip().lower()
+        intent = response.text.strip().lower().replace("\n", "")
 
         if intent in ["apply_scheme", "track_application", "nearest_office", "general_query"]:
             return intent
@@ -62,53 +79,31 @@ Output:
 
 
 # -----------------------------
-# FINAL INTENT (HYBRID)
+# FINAL INTENT
 # -----------------------------
 def get_intent(user_input):
     ai_result = ai_intent(user_input)
-
-    if ai_result:
-        return ai_result
-
-    return rule_based_intent(user_input)
+    return ai_result if ai_result else rule_based_intent(user_input)
 
 
 # -----------------------------
-# GEMINI TRANSLATION (OPTIONAL)
+# LANGUAGE DETECTION
 # -----------------------------
-def ai_translate(user_input, text):
-    if not USE_AI:
-        return text
-
-    prompt = f"""
-Translate the response into the SAME language as input.
-
-Input: {user_input}
-Response: {text}
-"""
-
-    try:
-        response = model.generate_content(prompt)
-        return response.text.strip()
-    except:
-        return text
-
-
-# -----------------------------
-# FALLBACK MULTILINGUAL
-# -----------------------------
-def fallback_translate(user_input, result):
+def detect_language(user_input):
     text = user_input.lower()
 
     if any('\u0900' <= ch <= '\u097F' for ch in text):
-        lang = "hindi"
+        return "hindi"
     elif any(word in text for word in ["beku", "nanage", "illa", "ide"]):
-        lang = "kannada"
+        return "kannada"
     else:
-        lang = "english"
+        return "english"
 
-    intent = result.get("intent")
 
+# -----------------------------
+# MULTILINGUAL RESPONSES (SAFE)
+# -----------------------------
+def translate_response(intent, lang):
     translations = {
         "hindi": {
             "apply_scheme": "आपका सोलर सब्सिडी आवेदन तैयार है।",
@@ -121,13 +116,16 @@ def fallback_translate(user_input, result):
             "track_application": "ನಿಮ್ಮ ಅರ್ಜಿ ಪರಿಶೀಲನೆಯಲ್ಲಿದೆ.",
             "nearest_office": "ಹತ್ತಿರದ ಕಚೇರಿ 2 ಕಿಮೀ ದೂರದಲ್ಲಿದೆ.",
             "general_query": "ನಾನು ಯೋಜನೆಗಳು ಮತ್ತು ಸೇವೆಗಳಲ್ಲಿ ಸಹಾಯ ಮಾಡಬಹುದು."
+        },
+        "english": {
+            "apply_scheme": "Your Solar Subsidy application is ready.",
+            "track_application": "Your application is under review.",
+            "nearest_office": "Nearest office is 2 km away.",
+            "general_query": "I can help you with schemes and services."
         }
     }
 
-    if lang in translations and intent in translations[lang]:
-        return translations[lang][intent]
-
-    return result["response"]
+    return translations.get(lang, translations["english"]).get(intent, "OK")
 
 
 # -----------------------------
@@ -135,12 +133,13 @@ def fallback_translate(user_input, result):
 # -----------------------------
 def agent(user_input):
     intent = get_intent(user_input)
+    lang = detect_language(user_input)
 
+    # APPLY
     if intent == "apply_scheme":
         result = {
             "intent": intent,
             "action": "autofill_form",
-            "response": "Your Solar Subsidy application is ready.",
             "data": {
                 "scheme": "Solar Subsidy",
                 "documents_required": [
@@ -149,47 +148,45 @@ def agent(user_input):
                     "Bank Passbook",
                     "Income Certificate"
                 ],
-                "office_visits_required": "Minimum 1 visit"
+                "office_visits_required": "Minimum 1 visit",
+                "next_step": "Submit online or visit office"
             }
         }
 
+    # TRACK
     elif intent == "track_application":
         result = {
             "intent": intent,
             "action": "show_status",
-            "response": "Your application is under review.",
             "data": {
                 "status": "Under Review",
-                "office_visits_required": "0–1 visits"
+                "office_visits_required": "0–1 visits",
+                "next_step": "Wait for approval"
             }
         }
 
+    # OFFICE
     elif intent == "nearest_office":
         result = {
             "intent": intent,
             "action": "provide_location",
-            "response": "Nearest office is 2 km away.",
             "data": {
                 "office": "Bangalore Civic Center",
-                "timing": "10 AM - 5 PM"
+                "timing": "10 AM - 5 PM",
+                "next_step": "Visit during working hours"
             }
         }
 
+    # DEFAULT
     else:
         result = {
             "intent": "general_query",
             "action": "answer_query",
-            "response": "I can help you apply for schemes, track applications, and find nearby services.",
             "data": {}
         }
 
-    # -----------------------------
-    # TRANSLATION LOGIC (HYBRID)
-    # -----------------------------
-    if USE_AI:
-        result["response"] = ai_translate(user_input, result["response"])
-    else:
-        result["response"] = fallback_translate(user_input, result)
+    # SAFE RESPONSE (NO API)
+    result["response"] = translate_response(intent, lang)
 
     return result
 
@@ -198,7 +195,7 @@ def agent(user_input):
 # TEST MODE
 # -----------------------------
 if __name__ == "__main__":
-    print("🚀 CivicAI Agent (Gemini + Fallback)\n")
+    print("🚀 CivicAI Production Agent (Stable + Offline Ready)\n")
 
     while True:
         user_input = input("🎤 You: ")
