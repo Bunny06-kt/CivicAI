@@ -1,8 +1,8 @@
 import json
 import os
+from unittest import result
 from dotenv import load_dotenv
 
-# Try to load Gemini (optional)
 USE_AI = True
 
 try:
@@ -20,7 +20,7 @@ except:
 def rule_based_intent(user_input):
     text = user_input.lower()
 
-    if "subsidy" in text or "सब्सिडी" in text or "beku" in text:
+    if "subsidy" in text or "सोलर" in text or "beku" in text:
         return "apply_scheme"
 
     if "track" in text or "status" in text:
@@ -71,22 +71,45 @@ def get_intent(user_input):
 # MULTILINGUAL RESPONSE (AI)
 # -----------------------------
 def translate_response(user_input, response_text):
-    if not USE_AI:
-        return response_text
+    text = user_input.lower()
 
-    prompt = f"""
-Respond in SAME language as input.
+    # -----------------------------
+    # LANGUAGE DETECTION
+    # -----------------------------
+    if any(char in text for char in "अआइईउऊएऐओऔ"):
+        lang = "hindi"
+    elif any(word in text for word in ["beku", "nanage", "illa", "ide"]):
+        lang = "kannada"
+    else:
+        lang = "english"
 
-Input: {user_input}
-Response: {response_text}
-"""
+    # -----------------------------
+    # TRANSLATION MAP
+    # -----------------------------
+    translations = {
+        "hindi": {
+            "Your Solar Subsidy application is ready.": "आपका सोलर सब्सिडी आवेदन तैयार है।",
+            "Your application is under review.": "आपका आवेदन समीक्षा में है।",
+            "Nearest office is 2 km away.": "निकटतम कार्यालय 2 किमी दूर है।",
+            "I can help you apply for schemes, track applications, and find nearby services.":
+                "मैं योजनाओं के लिए आवेदन करने, आवेदन की स्थिति देखने और नजदीकी सेवाएं खोजने में मदद कर सकता हूँ।"
+        },
+        "kannada": {
+            "Your Solar Subsidy application is ready.": "ನಿಮ್ಮ ಸೊಲಾರ್ ಸಬ್ಸಿಡಿ ಅರ್ಜಿ ಸಿದ್ಧವಾಗಿದೆ.",
+            "Your application is under review.": "ನಿಮ್ಮ ಅರ್ಜಿ ಪರಿಶೀಲನೆಯಲ್ಲಿದೆ.",
+            "Nearest office is 2 km away.": "ಹತ್ತಿರದ ಕಚೇರಿ 2 ಕಿಮೀ ದೂರದಲ್ಲಿದೆ.",
+            "I can help you apply for schemes, track applications, and find nearby services.":
+                "ನಾನು ಯೋಜನೆಗಳಿಗೆ ಅರ್ಜಿ ಹಾಕಲು, ಅರ್ಜಿಯ ಸ್ಥಿತಿ ತಿಳಿಯಲು ಮತ್ತು ಹತ್ತಿರದ ಸೇವೆಗಳನ್ನು ಹುಡುಕಲು ಸಹಾಯ ಮಾಡುತ್ತೇನೆ."
+        }
+    }
 
-    try:
-        response = model.generate_content(prompt)
-        return response.text.strip()
-    except:
-        return response_text
+    # -----------------------------
+    # RETURN TRANSLATED RESPONSE
+    # -----------------------------
+    if lang in translations and response_text in translations[lang]:
+        return translations[lang][response_text]
 
+    return response_text
 
 # -----------------------------
 # MAIN AGENT LOGIC
@@ -98,7 +121,7 @@ def agent(user_input):
     if intent == "apply_scheme":
         result = {
             "action": "autofill_form",
-            "response": "Your Solar Subsidy application is ready.",
+            "response": "Your Solar Subsidy application is shown.",
             "data": {
                 "scheme": "Solar Subsidy",
                 "documents_required": [
@@ -149,25 +172,23 @@ def agent(user_input):
         }
 
     # Apply multilingual response
-    result["response"] = translate_response(user_input, result["response"])
-
+    result["response"] = translate_response(user_input, result)\
+    
     return result
-
-
 # -----------------------------
 # TEST MODE
 # -----------------------------
 if __name__ == "__main__":
-    print("🚀 CivicAI Hybrid Agent (Multilingual + Safe)\n")
+    print(" CivicAI Hybrid Agent (Multilingual + Safe)\n")
 
     while True:
-        user_input = input("🎤 You: ")
-
+        user_input = input("You: ") 
         if user_input.lower() in ["exit", "quit"]:
             break
 
         result = agent(user_input)
 
-        print("\n🤖 Agent Output:")
+        print("\n Agent Output:")
+        print(result)
         print(json.dumps(result, indent=2, ensure_ascii=False))
         print("\n" + "-" * 40)
