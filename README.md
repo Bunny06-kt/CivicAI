@@ -1,0 +1,2 @@
+# CivicAI
+nexora hackathon
