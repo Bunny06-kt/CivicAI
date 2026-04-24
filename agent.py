@@ -1,21 +1,13 @@
 import json
 import os
-from unittest import result
 from dotenv import load_dotenv
 
-USE_AI = True
-
-try:
-    import google.generativeai as genai
-    load_dotenv()
-    genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
-    model = genai.GenerativeModel("gemini-1.5-flash")
-except:
-    USE_AI = False
+# Disable AI for stable demo
+USE_AI = False
 
 
 # -----------------------------
-# RULE-BASED INTENT (FAST + SAFE)
+# RULE-BASED INTENT
 # -----------------------------
 def rule_based_intent(user_input):
     text = user_input.lower()
@@ -33,95 +25,60 @@ def rule_based_intent(user_input):
 
 
 # -----------------------------
-# OPTIONAL AI INTENT (MULTILINGUAL BOOST)
-# -----------------------------
-def ai_intent(user_input):
-    if not USE_AI:
-        return None
-
-    prompt = f"""
-Detect intent of user.
-
-Return ONLY one word:
-apply_scheme / track_application / nearest_office / general_query
-
-Input: {user_input}
-"""
-
-    try:
-        response = model.generate_content(prompt)
-        return response.text.strip().lower()
-    except:
-        return None
-
-
-# -----------------------------
-# FINAL INTENT DECISION
+# FINAL INTENT
 # -----------------------------
 def get_intent(user_input):
-    ai_result = ai_intent(user_input)
-
-    if ai_result in ["apply_scheme", "track_application", "nearest_office"]:
-        return ai_result
-
     return rule_based_intent(user_input)
 
 
 # -----------------------------
-# MULTILINGUAL RESPONSE (AI)
+# MULTILINGUAL RESPONSE (FIXED)
 # -----------------------------
-def translate_response(user_input, response_text):
+def translate_response(user_input, result):
     text = user_input.lower()
 
-    # -----------------------------
-    # LANGUAGE DETECTION
-    # -----------------------------
-    if any(char in text for char in "अआइईउऊएऐओऔ"):
+    # Improved Language Detection
+    if any('\u0900' <= ch <= '\u097F' for ch in text):
         lang = "hindi"
     elif any(word in text for word in ["beku", "nanage", "illa", "ide"]):
         lang = "kannada"
     else:
         lang = "english"
 
-    # -----------------------------
-    # TRANSLATION MAP
-    # -----------------------------
+    intent = result.get("intent")
+
     translations = {
         "hindi": {
-            "Your Solar Subsidy application is ready.": "आपका सोलर सब्सिडी आवेदन तैयार है।",
-            "Your application is under review.": "आपका आवेदन समीक्षा में है।",
-            "Nearest office is 2 km away.": "निकटतम कार्यालय 2 किमी दूर है।",
-            "I can help you apply for schemes, track applications, and find nearby services.":
-                "मैं योजनाओं के लिए आवेदन करने, आवेदन की स्थिति देखने और नजदीकी सेवाएं खोजने में मदद कर सकता हूँ।"
+            "apply_scheme": "आपका सोलर सब्सिडी आवेदन तैयार है।",
+            "track_application": "आपका आवेदन समीक्षा में है।",
+            "nearest_office": "निकटतम कार्यालय 2 किमी दूर है।",
+            "general_query": "मैं आपकी योजनाओं और सेवाओं में मदद कर सकता हूँ।"
         },
         "kannada": {
-            "Your Solar Subsidy application is ready.": "ನಿಮ್ಮ ಸೊಲಾರ್ ಸಬ್ಸಿಡಿ ಅರ್ಜಿ ಸಿದ್ಧವಾಗಿದೆ.",
-            "Your application is under review.": "ನಿಮ್ಮ ಅರ್ಜಿ ಪರಿಶೀಲನೆಯಲ್ಲಿದೆ.",
-            "Nearest office is 2 km away.": "ಹತ್ತಿರದ ಕಚೇರಿ 2 ಕಿಮೀ ದೂರದಲ್ಲಿದೆ.",
-            "I can help you apply for schemes, track applications, and find nearby services.":
-                "ನಾನು ಯೋಜನೆಗಳಿಗೆ ಅರ್ಜಿ ಹಾಕಲು, ಅರ್ಜಿಯ ಸ್ಥಿತಿ ತಿಳಿಯಲು ಮತ್ತು ಹತ್ತಿರದ ಸೇವೆಗಳನ್ನು ಹುಡುಕಲು ಸಹಾಯ ಮಾಡುತ್ತೇನೆ."
+            "apply_scheme": "ನಿಮ್ಮ ಸೊಲಾರ್ ಸಬ್ಸಿಡಿ ಅರ್ಜಿ ಸಿದ್ಧವಾಗಿದೆ.",
+            "track_application": "ನಿಮ್ಮ ಅರ್ಜಿ ಪರಿಶೀಲನೆಯಲ್ಲಿದೆ.",
+            "nearest_office": "ಹತ್ತಿರದ ಕಚೇರಿ 2 ಕಿಮೀ ದೂರದಲ್ಲಿದೆ.",
+            "general_query": "ನಾನು ಯೋಜನೆಗಳು ಮತ್ತು ಸೇವೆಗಳಲ್ಲಿ ಸಹಾಯ ಮಾಡಬಹುದು."
         }
     }
 
-    # -----------------------------
-    # RETURN TRANSLATED RESPONSE
-    # -----------------------------
-    if lang in translations and response_text in translations[lang]:
-        return translations[lang][response_text]
+    if lang in translations and intent in translations[lang]:
+        return translations[lang][intent]
 
-    return response_text
+    return result["response"]
+
 
 # -----------------------------
-# MAIN AGENT LOGIC
+# MAIN AGENT
 # -----------------------------
 def agent(user_input):
     intent = get_intent(user_input)
 
-    # APPLY SCHEME
     if intent == "apply_scheme":
         result = {
+            "intent": intent,
             "action": "autofill_form",
-            "response": "Your Solar Subsidy application is shown.",
+            "response": "Your Solar Subsidy application is ready.",
             "data": {
                 "scheme": "Solar Subsidy",
                 "documents_required": [
@@ -139,9 +96,9 @@ def agent(user_input):
             }
         }
 
-    # TRACK
     elif intent == "track_application":
         result = {
+            "intent": intent,
             "action": "show_status",
             "response": "Your application is under review.",
             "data": {
@@ -151,9 +108,9 @@ def agent(user_input):
             }
         }
 
-    # OFFICE
     elif intent == "nearest_office":
         result = {
+            "intent": intent,
             "action": "provide_location",
             "response": "Nearest office is 2 km away.",
             "data": {
@@ -163,32 +120,34 @@ def agent(user_input):
             }
         }
 
-    # DEFAULT
     else:
         result = {
+            "intent": "general_query",
             "action": "answer_query",
             "response": "I can help you apply for schemes, track applications, and find nearby services.",
             "data": {}
         }
 
-    # Apply multilingual response
-    result["response"] = translate_response(user_input, result)\
-    
+    # Multilingual conversion
+    result["response"] = translate_response(user_input, result)
+
     return result
+
+
 # -----------------------------
 # TEST MODE
 # -----------------------------
 if __name__ == "__main__":
-    print(" CivicAI Hybrid Agent (Multilingual + Safe)\n")
+    print("🚀 CivicAI Agent (Stable Multilingual Demo)\n")
 
     while True:
-        user_input = input("You: ") 
+        user_input = input("🎤 You: ")
+
         if user_input.lower() in ["exit", "quit"]:
             break
 
         result = agent(user_input)
 
-        print("\n Agent Output:")
-        print(result)
+        print("\n🤖 Agent Output:")
         print(json.dumps(result, indent=2, ensure_ascii=False))
         print("\n" + "-" * 40)
