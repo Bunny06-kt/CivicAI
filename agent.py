@@ -1,45 +1,28 @@
+import json
 import os
-import random
-import google.generativeai as genai
 from dotenv import load_dotenv
 
-load_dotenv()
-genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
+# -----------------------------
+# LOAD GEMINI
+# -----------------------------
+USE_AI = True
+
+try:
+    import google.generativeai as genai
+    load_dotenv()
+    genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
+    model = genai.GenerativeModel("gemini-1.5-flash")
+except:
+    USE_AI = False
+
 
 # -----------------------------
-# CACHE (in-memory)
+# RULE-BASED INTENT (FAST FALLBACK)
 # -----------------------------
-CACHE = {}
+def rule_based_intent(user_input):
+    text = user_input.lower()
 
-# -----------------------------
-# LANGUAGE DETECTION
-# -----------------------------
-def detect_language(text):
-    if any('\u0900' <= ch <= '\u097F' for ch in text):
-        return "hindi"
-    if any('\u0C80' <= ch <= '\u0CFF' for ch in text):
-        return "kannada"
-    if any(word in text.lower() for word in ["beku", "nanage"]):
-        return "kannada"
-    return "english"
-
-# -----------------------------
-# UNCLEAR DETECTION
-# -----------------------------
-def is_unclear(text):
-    if not text or len(text.split()) <= 2:
-        return True
-    if any(w in text.lower() for w in ["uh", "hmm", "aaa"]):
-        return True
-    return False
-
-# -----------------------------
-# INTENT
-# -----------------------------
-def get_intent(text):
-    text = text.lower()
-
-    if "सब्सिडी" in text or "beku" in text:
+    if "subsidy" in text or "सोलर" in text or "beku" in text:
         return "apply_scheme"
 
     if "track" in text or "status" in text:
@@ -50,96 +33,181 @@ def get_intent(text):
 
     return "general_query"
 
+
 # -----------------------------
-# GEMINI CALL (OPTIMIZED)
+# GEMINI INTENT (SMART)
 # -----------------------------
-def call_llm(user_input):
-    # CACHE CHECK
-    if user_input in CACHE:
-        return CACHE[user_input]
+def ai_intent(user_input):
+    if not USE_AI:
+        return None
+
+    prompt = f"""
+Classify user intent into ONE of:
+apply_scheme / track_application / nearest_office / general_query
+
+Input: {user_input}
+Output:
+"""
 
     try:
-        model = genai.GenerativeModel("gemini-pro")
-
-        prompt = f"""
-        Answer briefly (1-2 lines max).
-        Be clear and helpful.
-
-        User: {user_input}
-        """
-
         response = model.generate_content(prompt)
-        text = response.text.strip()
+        intent = response.text.strip().lower()
 
-        # STORE IN CACHE
-        CACHE[user_input] = text
+        if intent in ["apply_scheme", "track_application", "nearest_office", "general_query"]:
+            return intent
+    except:
+        return None
 
+    return None
+
+
+# -----------------------------
+# FINAL INTENT (HYBRID)
+# -----------------------------
+def get_intent(user_input):
+    ai_result = ai_intent(user_input)
+
+    if ai_result:
+        return ai_result
+
+    return rule_based_intent(user_input)
+
+
+# -----------------------------
+# GEMINI TRANSLATION (OPTIONAL)
+# -----------------------------
+def ai_translate(user_input, text):
+    if not USE_AI:
         return text
 
-    except Exception:
-        return "Sorry, I couldn't process that right now."
+    prompt = f"""
+Translate the response into the SAME language as input.
+
+Input: {user_input}
+Response: {text}
+"""
+
+    try:
+        response = model.generate_content(prompt)
+        return response.text.strip()
+    except:
+        return text
+
 
 # -----------------------------
-# TRANSLATION
+# FALLBACK MULTILINGUAL
 # -----------------------------
-def translate(user_input, intent, default):
-    lang = detect_language(user_input)
+def fallback_translate(user_input, result):
+    text = user_input.lower()
+
+    if any('\u0900' <= ch <= '\u097F' for ch in text):
+        lang = "hindi"
+    elif any(word in text for word in ["beku", "nanage", "illa", "ide"]):
+        lang = "kannada"
+    else:
+        lang = "english"
+
+    intent = result.get("intent")
 
     translations = {
         "hindi": {
-            "apply_scheme": "आपका आवेदन तैयार है — कार्यालय जाने की आवश्यकता नहीं।",
+            "apply_scheme": "आपका सोलर सब्सिडी आवेदन तैयार है।",
             "track_application": "आपका आवेदन समीक्षा में है।",
-            "nearest_office": "निकटतम कार्यालय पास में है।",
-            "smart_autofill": "भाषा स्पष्ट नहीं है। स्मार्ट ऑटोफिल किया जा रहा है।"
+            "nearest_office": "निकटतम कार्यालय 2 किमी दूर है।",
+            "general_query": "मैं आपकी योजनाओं और सेवाओं में मदद कर सकता हूँ।"
         },
         "kannada": {
-            "apply_scheme": "ನಿಮ್ಮ ಅರ್ಜಿ ಸಿದ್ಧವಾಗಿದೆ — ಕಚೇರಿ ಭೇಟಿ ಅಗತ್ಯವಿಲ್ಲ.",
+            "apply_scheme": "ನಿಮ್ಮ ಸೊಲಾರ್ ಸಬ್ಸಿಡಿ ಅರ್ಜಿ ಸಿದ್ಧವಾಗಿದೆ.",
             "track_application": "ನಿಮ್ಮ ಅರ್ಜಿ ಪರಿಶೀಲನೆಯಲ್ಲಿದೆ.",
-            "nearest_office": "ಹತ್ತಿರದ ಕಚೇರಿ ಲಭ್ಯವಿದೆ.",
-            "smart_autofill": "ಭಾಷೆ ಸ್ಪಷ್ಟವಾಗಿಲ್ಲ. ಸ್ಮಾರ್ಟ್ ಸ್ವಯಂ ಭರ್ತಿ ಮಾಡಲಾಗುತ್ತಿದೆ."
+            "nearest_office": "ಹತ್ತಿರದ ಕಚೇರಿ 2 ಕಿಮೀ ದೂರದಲ್ಲಿದೆ.",
+            "general_query": "ನಾನು ಯೋಜನೆಗಳು ಮತ್ತು ಸೇವೆಗಳಲ್ಲಿ ಸಹಾಯ ಮಾಡಬಹುದು."
         }
     }
 
-    return translations.get(lang, {}).get(intent, default)
+    if lang in translations and intent in translations[lang]:
+        return translations[lang][intent]
+
+    return result["response"]
+
 
 # -----------------------------
 # MAIN AGENT
 # -----------------------------
 def agent(user_input):
+    intent = get_intent(user_input)
 
-    # Smart fallback trigger
-    if is_unclear(user_input):
-        intent = "smart_autofill"
-    else:
-        intent = get_intent(user_input)
-
-    # -------------------------
     if intent == "apply_scheme":
-        response = "Your application is ready."
-        data = {"source": "rule_based"}
+        result = {
+            "intent": intent,
+            "action": "autofill_form",
+            "response": "Your Solar Subsidy application is ready.",
+            "data": {
+                "scheme": "Solar Subsidy",
+                "documents_required": [
+                    "Aadhaar Card",
+                    "Electricity Bill",
+                    "Bank Passbook",
+                    "Income Certificate"
+                ],
+                "office_visits_required": "Minimum 1 visit"
+            }
+        }
 
     elif intent == "track_application":
-        response = "Your application is under review."
-        data = {"source": "rule_based"}
+        result = {
+            "intent": intent,
+            "action": "show_status",
+            "response": "Your application is under review.",
+            "data": {
+                "status": "Under Review",
+                "office_visits_required": "0–1 visits"
+            }
+        }
 
     elif intent == "nearest_office":
-        response = "Nearest office is nearby."
-        data = {"source": "rule_based"}
-
-    elif intent == "smart_autofill":
-        response = "Language unclear. Proceeding with smart autofill."
-        data = {"source": "rule_based"}
+        result = {
+            "intent": intent,
+            "action": "provide_location",
+            "response": "Nearest office is 2 km away.",
+            "data": {
+                "office": "Bangalore Civic Center",
+                "timing": "10 AM - 5 PM"
+            }
+        }
 
     else:
-        #  ONLY HERE WE CALL LLM
-        response = call_llm(user_input)
-        data = {"source": "gemini_llm"}
+        result = {
+            "intent": "general_query",
+            "action": "answer_query",
+            "response": "I can help you apply for schemes, track applications, and find nearby services.",
+            "data": {}
+        }
 
-    # Translation layer
-    response = translate(user_input, intent, response)
+    # -----------------------------
+    # TRANSLATION LOGIC (HYBRID)
+    # -----------------------------
+    if USE_AI:
+        result["response"] = ai_translate(user_input, result["response"])
+    else:
+        result["response"] = fallback_translate(user_input, result)
 
-    return {
-        "intent": intent,
-        "response": response,
-        "data": data
-    }
+    return result
+
+
+# -----------------------------
+# TEST MODE
+# -----------------------------
+if __name__ == "__main__":
+    print("🚀 CivicAI Agent (Gemini + Fallback)\n")
+
+    while True:
+        user_input = input("🎤 You: ")
+
+        if user_input.lower() in ["exit", "quit"]:
+            break
+
+        result = agent(user_input)
+
+        print("\n🤖 Agent Output:")
+        print(json.dumps(result, indent=2, ensure_ascii=False))
+        print("\n" + "-" * 40)
